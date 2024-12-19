@@ -42,8 +42,10 @@ type AdaptiveThrottle struct {
 	k            float64
 	minPerWindow float64
 
-	requests []windowedCounter
-	accepts  []windowedCounter
+	priorities int
+	requests   []windowedCounter
+	accepts    []windowedCounter
+	validate   func(p Priority, priorities int) (Priority, error)
 }
 
 // NewAdaptiveThrottle returns an AdaptiveThrottle.
@@ -51,6 +53,10 @@ type AdaptiveThrottle struct {
 // priorities is the number of priorities that the throttle will accept. Giving a priority outside
 // of `[0, priorities)` will panic.
 func NewAdaptiveThrottle(priorities int, options ...AdaptiveThrottleOption) *AdaptiveThrottle {
+	if priorities <= 0 {
+		panic("bulwark: priorities must be greater than 0")
+	}
+
 	opts := adaptiveThrottleOptions{
 		d:       time.Minute,
 		k:       K,
@@ -70,9 +76,11 @@ func NewAdaptiveThrottle(priorities int, options ...AdaptiveThrottleOption) *Ada
 
 	return &AdaptiveThrottle{
 		k:            opts.k,
+		priorities:   priorities,
 		requests:     requests,
 		accepts:      accepts,
 		minPerWindow: opts.minRate * opts.d.Seconds(),
+		validate:     OnInvalidPriorityAdjust,
 	}
 }
 
@@ -93,7 +101,11 @@ func NewAdaptiveThrottle(priorities int, options ...AdaptiveThrottleOption) *Ada
 func (t *AdaptiveThrottle) Throttle(
 	ctx context.Context, defaultPriority Priority, fn throttledFn, fallbackFn ...fallbackFn,
 ) error {
-	priority := PriorityFromContext(ctx, defaultPriority)
+	priority, err := t.validate(PriorityFromContext(ctx, defaultPriority), t.priorities)
+	if err != nil {
+		return err
+	}
+
 	now := Now()
 	rejectionProbability := t.rejectionProbability(priority, now)
 	if rand.Float64() < rejectionProbability {
@@ -112,7 +124,7 @@ func (t *AdaptiveThrottle) Throttle(
 		return ClientSideRejectionError
 	}
 
-	err := fn(ctx)
+	err = fn(ctx)
 
 	now = Now()
 	switch {
@@ -191,6 +203,7 @@ type adaptiveThrottleOptions struct {
 	minRate         float64
 	d               time.Duration
 	isErrorAccepted func(err error) bool
+	validate        func(p Priority, priorities int) (Priority, error)
 }
 
 // WithAdaptiveThrottleRatio sets the ratio of the measured success rate and the rate that the throttle
@@ -234,14 +247,38 @@ func WithAcceptedErrors(fn func(err error) bool) AdaptiveThrottleOption {
 	}}
 }
 
+// WithPriorityValidator sets the function that validates input priority values.
+//
+// The function should return the validated priority value. If the priority is
+// invalid, the function should return an error.
+func WithPriorityValidator(fn func(p Priority, priorities int) (Priority, error)) AdaptiveThrottleOption {
+	return AdaptiveThrottleOption{func(opts *adaptiveThrottleOptions) {
+		opts.validate = func(p Priority, priorities int) (Priority, error) {
+			p, err := fn(p, priorities)
+			if err != nil {
+				return p, err
+			}
+
+			// This is a safeguard in case the validator function does not return a
+			// valid priority. It is better to panic with this functions, because
+			// the message is more informative.
+			return OnInvalidPriorityPanic(p, priorities)
+		}
+	}}
+}
+
 func Throttle[T any](
 	ctx context.Context,
 	at *AdaptiveThrottle,
 	defaultPriority Priority,
 	throttledFn throttledArgsFn[T],
 	fallbackFn ...fallbackArgsFn[T],
-) (T, error) {
-	priority := PriorityFromContext(ctx, defaultPriority)
+) (res T, err error) {
+	priority, err := at.validate(PriorityFromContext(ctx, defaultPriority), at.priorities)
+	if err != nil {
+		return res, err
+	}
+
 	now := Now()
 	rejectionProbability := at.rejectionProbability(priority, now)
 	if rand.Float64() < rejectionProbability {
@@ -261,7 +298,7 @@ func Throttle[T any](
 		return zero, ClientSideRejectionError
 	}
 
-	t, err := throttledFn(ctx)
+	res, err = throttledFn(ctx)
 
 	now = Now()
 	switch {
@@ -282,7 +319,7 @@ func Throttle[T any](
 		return fallbackFn[0](ctx, err, false)
 	}
 
-	return t, err
+	return res, err
 }
 
 // WithAdaptiveThrottle is used to send a request to a backend using the given AdaptiveThrottle for
@@ -298,7 +335,12 @@ func WithAdaptiveThrottle[T any](
 	at *AdaptiveThrottle,
 	priority Priority,
 	throttledFn func() (T, error),
-) (T, error) {
+) (res T, err error) {
+	priority, err = at.validate(priority, at.priorities)
+	if err != nil {
+		return res, err
+	}
+
 	now := Now()
 	rejectionProbability := at.rejectionProbability(priority, now)
 	if rand.Float64() < rejectionProbability {
@@ -314,7 +356,7 @@ func WithAdaptiveThrottle[T any](
 		return zero, ClientSideRejectionError
 	}
 
-	t, err := throttledFn()
+	res, err = throttledFn()
 
 	now = Now()
 	switch {
@@ -331,7 +373,7 @@ func WithAdaptiveThrottle[T any](
 		at.accept(priority, now)
 	}
 
-	return t, err
+	return res, err
 }
 
 // RejectedError wraps an error to indicate that the error should be considered
