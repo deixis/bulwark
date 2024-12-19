@@ -16,6 +16,27 @@ import (
 	"golang.org/x/time/rate"
 )
 
+func TestAdaptiveThrottlePriority(t *testing.T) {
+	throttle := NewAdaptiveThrottle(0)
+
+	testErr := fmt.Errorf("test")
+	throttleFn := func(ctx context.Context) (int, error) {
+		return 1, RejectedError(testErr)
+	}
+
+	priority := Low
+	_, err := Throttle(context.Background(), throttle, priority, throttleFn)
+	if err != nil && !errors.Is(err, testErr) {
+		t.Fatal(err)
+	}
+
+	ctx := WithPriority(context.Background(), 4)
+	_, err = Throttle(ctx, throttle, 0, throttleFn)
+	if err != nil && !errors.Is(err, testErr) {
+		t.Fatal(err)
+	}
+}
+
 func TestAdaptiveThrottleBasic(t *testing.T) {
 	duration := 28 * time.Second
 	start := time.Now()

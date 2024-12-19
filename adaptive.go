@@ -42,8 +42,9 @@ type AdaptiveThrottle struct {
 	k            float64
 	minPerWindow float64
 
-	requests []windowedCounter
-	accepts  []windowedCounter
+	priorities Priority
+	requests   []windowedCounter
+	accepts    []windowedCounter
 }
 
 // NewAdaptiveThrottle returns an AdaptiveThrottle.
@@ -51,6 +52,10 @@ type AdaptiveThrottle struct {
 // priorities is the number of priorities that the throttle will accept. Giving a priority outside
 // of `[0, priorities)` will panic.
 func NewAdaptiveThrottle(priorities int, options ...AdaptiveThrottleOption) *AdaptiveThrottle {
+	if priorities <= 0 {
+		priorities = 1
+	}
+
 	opts := adaptiveThrottleOptions{
 		d:       time.Minute,
 		k:       K,
@@ -70,6 +75,7 @@ func NewAdaptiveThrottle(priorities int, options ...AdaptiveThrottleOption) *Ada
 
 	return &AdaptiveThrottle{
 		k:            opts.k,
+		priorities:   Priority(priorities),
 		requests:     requests,
 		accepts:      accepts,
 		minPerWindow: opts.minRate * opts.d.Seconds(),
@@ -93,7 +99,7 @@ func NewAdaptiveThrottle(priorities int, options ...AdaptiveThrottleOption) *Ada
 func (t *AdaptiveThrottle) Throttle(
 	ctx context.Context, defaultPriority Priority, fn throttledFn, fallbackFn ...fallbackFn,
 ) error {
-	priority := PriorityFromContext(ctx, defaultPriority)
+	priority := t.priority(PriorityFromContext(ctx, defaultPriority))
 	now := Now()
 	rejectionProbability := t.rejectionProbability(priority, now)
 	if rand.Float64() < rejectionProbability {
@@ -180,6 +186,17 @@ func (t *AdaptiveThrottle) reject(p Priority, now time.Time) {
 	t.m.Unlock()
 }
 
+func (t *AdaptiveThrottle) priority(p Priority) Priority {
+	if p > t.priorities {
+		return t.priorities - 1
+	}
+	if p < 0 {
+		return 0
+	}
+
+	return p
+}
+
 // Additional options for the AdaptiveThrottle type. These options do not frequently need to be
 // tuned as the defaults work in a majority of cases.
 type AdaptiveThrottleOption struct {
@@ -241,7 +258,7 @@ func Throttle[T any](
 	throttledFn throttledArgsFn[T],
 	fallbackFn ...fallbackArgsFn[T],
 ) (T, error) {
-	priority := PriorityFromContext(ctx, defaultPriority)
+	priority := at.priority(PriorityFromContext(ctx, defaultPriority))
 	now := Now()
 	rejectionProbability := at.rejectionProbability(priority, now)
 	if rand.Float64() < rejectionProbability {
