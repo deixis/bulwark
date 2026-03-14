@@ -1,12 +1,4 @@
-github.com/bradenaw/backpressure v0.0.0-20240815030451-1f2598369681 h1:ddHGESH+dHyakRSd9PS9n0lm46DaGeDBiReDJuR9onA=
-github.com/bradenaw/backpressure v0.0.0-20240815030451-1f2598369681/go.mod h1:7OaYC6NbGqM3JVLuoc41EJY90Moph3Qd2DosjqdgkEY=
-github.com/bradenaw/juniper v0.10.0 h1:doiS41jo2iQ/tDIbisWA+eEe2NN1ZwU3rkI+3L1V63c=
-github.com/bradenaw/juniper v0.10.0/go.mod h1:Z2B7aJlQ7xbfWsnMLROj5t/5FQ94/MkIdKC30J4WvzI=
 github.com/deixis/faults v0.0.0-20240817153531-c0ec10db827f h1:n8+Ze8qDZh8DzSdknFqzXpvU3xjVrhqShgyx1xwC8ek=
 github.com/deixis/faults v0.0.0-20240817153531-c0ec10db827f/go.mod h1:TmAFyR/M6swaIznYCjZBqZMVJg5MYOJFOsTYOawLZK4=
-golang.org/x/exp v0.0.0-20220217172124-1812c5b45e43 h1:Xo03zeNci09uW1tocp7+8X7YizAdkD/BKNkl9lsqKHQ=
-golang.org/x/exp v0.0.0-20220217172124-1812c5b45e43/go.mod h1:lRnflEfy7nRvpQCcpkwaSP1nkrSyjkyFNcqXKfSXLMc=
-golang.org/x/sync v0.0.0-20210220032951-036812b2e83c h1:5KslGYwFpkhGh+Q16bwMP3cOontH8FOep7tGV86Y7SQ=
-golang.org/x/sync v0.0.0-20210220032951-036812b2e83c/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
 golang.org/x/time v0.6.0 h1:eTDhh4ZXt5Qf0augr54TN6suAUudPcawVZeIAPU7D4U=
 golang.org/x/time v0.6.0/go.mod h1:3BpzKBy/shNhVucY/MWOyx10tF3SFh9QdLuxbVysPQM=
