@@ -4,7 +4,7 @@
 	- [Quick start](#quick-start)
 	- [Error handling](#error-handling)
 		- [Situational](#situational)
-		- [Global](#global)
+		- [Per-instance classifier](#per-instance-classifier)
 		- [`deixis/faults`](#deixisfaults)
 	- [Fallback](#fallback)
 	- [Priority](#priority)
@@ -15,7 +15,7 @@
 		- [Throttle ratio](#throttle-ratio)
 		- [Throttle minimum rate](#throttle-minimum-rate)
 		- [Throttle window](#throttle-window)
-		- [Accepted errors](#accepted-errors)
+		- [Rejected error classifier](#rejected-error-classifier)
 	- [Under the hood](#under-the-hood)
 	- [Inspirations](#inspirations)
 	- [Further reading](#further-reading)
@@ -35,9 +35,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
-	"github.com/deixis/bulwark"
+	"github.com/deixis/bulwark/v2"
 )
 
 func main() {
@@ -68,28 +69,20 @@ func main() {
 		return nil
 	})
 	if err != nil {
-		if err == bulwark.ClientSideRejectionError {
+		if errors.Is(err, bulwark.ErrClientSideRejection) {
 			// Call dropped
 		}
 
 		// Handle error
 	}
 
-	// When the throttled function needs to return a value, this function can be used.
+	// When the throttled function needs to return a value, use the generic Throttle function.
 	msg, err := bulwark.Throttle(ctx, throttle, bulwark.Medium, func(ctx context.Context) (string, error) {
 		// Call external service here...
-		var err error
-		if err != nil {
-			// Wrap error when it should be considered for throttling.
-			// By default, errors are ignored unless they are from the `faults` package.
-			// See the Error handling section for more info.
-			return bulwark.RejectedError(err)
-		}
-
 		return "Hello", nil
 	})
 	if err != nil {
-		if err == bulwark.ClientSideRejectionError {
+		if errors.Is(err, bulwark.ErrClientSideRejection) {
 			// Call dropped
 		}
 
@@ -119,39 +112,38 @@ if err != nil {
 
 > 💡 Wrapping errors with `bulwark.RejectedError` is suitable for initial implementations and simple use cases. However, avoid adding excessive error-handling logic within the throttled function, because it is not easily reusable and can lead to inconsistencies.
 
-### Global
+### Per-instance classifier
 
-Bulwark provides a global function, `bulwark.IsRejectedError`, to classify errors for throttling. This is especially useful for handling well-known error types across the codebase, reducing logic duplication in throttled functions.
+`WithRejectedErrorFunc` sets the per-instance function that classifies errors as capacity rejections. This is especially useful for handling well-known error types across the codebase, reducing logic duplication in throttled functions.
 
-Errors wrapped with `bulwark.RejectedError(err)` are always treated as capacity issues, so you don't need to include them in your `bulwark.IsRejectedError` implementation.
+Errors wrapped with `bulwark.RejectedError(err)` are always treated as capacity issues, so you don't need to include them in your classifier.
 
 ```go
-bulwark.IsRejectedError = func(err error) bool {
-	// For example, all timeouts could be considered as a capacity problem.
-	tempErr, ok := err.(interface {
-		Timeout() bool
-	})
-	if ok && tempErr.Timeout() {
-		return true
-	}
-	// a "Connection Reset by Peer" could also show symptoms of a capacity problem.
-	if errors.Is(err, syscall.ECONNRESET) {
-		return true
-	}
-	// Include the default logic
-	if bulwark.DefaultRejectedError(err) {
-		return true
-	}
-
-	return false // Use true or false by default to have a white/black list approach.
-}
+throttle := bulwark.NewAdaptiveThrottle(
+	bulwark.StandardPriorities,
+	bulwark.WithRejectedErrorFunc(func(err error) bool {
+		// For example, all timeouts could be considered as a capacity problem.
+		tempErr, ok := err.(interface {
+			Timeout() bool
+		})
+		if ok && tempErr.Timeout() {
+			return true
+		}
+		// a "Connection Reset by Peer" could also show symptoms of a capacity problem.
+		if errors.Is(err, syscall.ECONNRESET) {
+			return true
+		}
+		// Include the default logic
+		return bulwark.DefaultRejectedErrorFunc(err)
+	}),
+)
 ```
 
-> 💡 This approach works well in codebases with consistent error definitions for capacity-related issues. For instance, an [Echo](https://echo.labstack.com) server might override `bulwark.IsRejectedError` to include `echo.*HTTPError`.
+> 💡 This approach works well in codebases with consistent error definitions for capacity-related issues. For instance, an [Echo](https://echo.labstack.com) server might use `WithRejectedErrorFunc` to include `echo.*HTTPError`.
 
 ### `deixis/faults`
 
-Bulwark integrates with the [`deixis/faults`](https://github.com/deixis/faults) library through `bulwark.DefaultRejectedError`. This integration provides a structured and consistent way to categorise errors using well-defined primitives, offering significant benefits beyond load shedding.
+Bulwark integrates with the [`deixis/faults`](https://github.com/deixis/faults) library through `bulwark.DefaultRejectedErrorFunc`. This integration provides a structured and consistent way to categorise errors using well-defined primitives, offering significant benefits beyond load shedding.
 
 ```go
 err := throttle.Throttle(ctx, bulwark.Medium, func(ctx context.Context) error {
@@ -288,7 +280,7 @@ Higher values of `k` mean that the throttle will react more slowly when a backen
 ```go
 throttle := bulwark.NewAdaptiveThrottle(
 	bulwark.StandardPriorities,
-	bulwark.WithAdaptivethrottleatio(1.1),
+	bulwark.WithAdaptiveThrottleRatio(1.1),
 )
 ```
 
@@ -318,21 +310,24 @@ throttle := bulwark.NewAdaptiveThrottle(
 )
 ```
 
-### Accepted errors
+### Rejected error classifier
 
-Set the function that determines whether an error should be considered for the throttling. When the call to `fn` returns true, the error is NOT counted towards the throttling.
+Set the per-instance function that determines whether an error returned by the throttled function should be counted as a capacity rejection. Defaults to `DefaultRejectedErrorFunc`.
 
 ```go
-isAcceptedErrors := func(err error) bool {
-	return errors.Is(err, context.Canceled) // || other conditions
-}
 throttle := bulwark.NewAdaptiveThrottle(
 	bulwark.StandardPriorities,
-	bulwark.WithAcceptedErrors(isAcceptedErrors),
+	bulwark.WithRejectedErrorFunc(func(err error) bool {
+		// context.Canceled is not a capacity issue — don't count it.
+		if errors.Is(err, context.Canceled) {
+			return false
+		}
+		return bulwark.DefaultRejectedErrorFunc(err)
+	}),
 )
 ```
 
-> Errors unrelated to resource constraints or a service's inability to handle traffic should be allowed. For instance, errors caused by invalid user requests or authentication failures should be accepted.
+> Only errors that indicate the backend is under resource pressure should return true. Errors caused by invalid requests, authentication failures, or client cancellations should return false.
 
 ## Under the hood
 
