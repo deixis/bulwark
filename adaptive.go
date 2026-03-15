@@ -204,11 +204,10 @@ type AdaptiveThrottleOption struct {
 }
 
 type adaptiveThrottleOptions struct {
-	k               float64
-	minRate         float64
-	d               time.Duration
-	isErrorAccepted func(err error) bool
-	validate        func(p Priority, priorities int) (Priority, error)
+	k        float64
+	minRate  float64
+	d        time.Duration
+	validate func(p Priority, priorities int) (Priority, error)
 }
 
 // WithAdaptiveThrottleRatio sets the ratio of the measured success rate and the rate that the throttle
@@ -241,15 +240,10 @@ func WithAdaptiveThrottleWindow(d time.Duration) AdaptiveThrottleOption {
 	}}
 }
 
-// Deprecated: Wrap errors with RejectedError instead and use the global DefaultRejectedErrors.
-//
-// WithAcceptedErrors sets the function that determines whether an error should
-// be considered for the throttling. When the call to fn returns true, the error
-// is not counted towards the throttling.
+// Deprecated: Wrap errors with RejectedError instead, or override the global IsRejectedError.
+// This option has no effect and will be removed in a future version.
 func WithAcceptedErrors(fn func(err error) bool) AdaptiveThrottleOption {
-	return AdaptiveThrottleOption{func(opts *adaptiveThrottleOptions) {
-		opts.isErrorAccepted = fn
-	}}
+	return AdaptiveThrottleOption{func(opts *adaptiveThrottleOptions) {}}
 }
 
 // WithPriorityValidator sets the function that validates input priority values.
@@ -368,10 +362,10 @@ func WithAdaptiveThrottle[T any](
 	case err == nil:
 		at.accept(priority, now)
 	case errors.Is(err, errRejected{}):
-		at.reject(priority, now)
-
 		// Unwrap error to return the original error to the caller
 		err = err.(errRejected).inner
+
+		fallthrough
 	case IsRejectedError(err):
 		at.reject(priority, now)
 	default:
@@ -419,7 +413,7 @@ type (
 )
 
 var (
-	// Deprecated: Override `IsRejectedError` instead and/or wrap errors with `RejectedError`.
+	// Deprecated: Override IsRejectedError instead and/or wrap errors with RejectedError.
 	//
 	// DefaultAcceptedErrors is the default function used to determine whether
 	// an error should be considered for the throttling.
