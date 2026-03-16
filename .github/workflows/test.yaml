@@ -3,11 +3,16 @@ name: Run unit tests
 on:
   push
 
-env:
-  GO_VERSION: 1.22
-
 jobs:
   test:
+    strategy:
+      matrix:
+        module: [., v2]
+        include:
+          - module: .
+            go-version: "1.22"
+          - module: v2
+            go-version: "1.26"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -16,9 +21,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version: ${{ matrix.go-version }}
 
       - name: Run tests
+        working-directory: ${{ matrix.module }}
         # Run up to 3 times in case there is a flaky test
         run: |
           retry() {
