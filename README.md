@@ -28,6 +28,8 @@ Distributed services are particularly susceptible to cascading failures when par
 
 In normal conditions, when resources meet demand, Bulwark operates passively, allowing all traffic to flow without interference. Unlike traditional throttling mechanisms, Bulwark does not queue requests, ensuring no additional latency is introduced to request handling.
 
+**Requires Go 1.26+** (`github.com/deixis/bulwark/v2`). The v1 module (`github.com/deixis/bulwark`) requires Go 1.22+.
+
 ## Quick start
 
 ```go
