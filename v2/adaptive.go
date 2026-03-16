@@ -135,50 +135,18 @@ func NewAdaptiveThrottle(priorities int, options ...AdaptiveThrottleOption) *Ada
 func (t *AdaptiveThrottle) Throttle(
 	ctx context.Context, defaultPriority Priority, fn throttledFn, fallbackFn ...fallbackFn,
 ) error {
-	priority, err := t.validate(PriorityFromContext(ctx, defaultPriority), t.priorities)
-	if err != nil {
-		return err
-	}
-
-	now := t.now()
-	rejectionProbability := t.rejectionProbability(priority, now)
-	if t.randFloat64() < rejectionProbability {
-		// As Bulwark starts rejecting requests, requests will continue to exceed
-		// accepts. While it may seem counterintuitive, given that locally rejected
-		// requests aren't actually propagated, this is the preferred behavior. As the
-		// rate at which the application attempts requests to Bulwark grows
-		// (relative to the rate at which the backend accepts them), we want to
-		// increase the probability of dropping new requests.
-		t.reject(priority, now)
-
-		if len(fallbackFn) > 0 {
-			return fallbackFn[0](ctx, t.clientSideRejectionError, true)
+	var fb []fallbackArgsFn[struct{}]
+	if len(fallbackFn) > 0 {
+		f := fallbackFn[0]
+		fb = []fallbackArgsFn[struct{}]{
+			func(ctx context.Context, err error, local bool) (struct{}, error) {
+				return struct{}{}, f(ctx, err, local)
+			},
 		}
-
-		return t.clientSideRejectionError
 	}
-
-	err = fn(ctx)
-
-	now = t.now()
-	switch {
-	case err == nil:
-		t.accept(priority, now)
-	case errors.Is(err, errRejected{}):
-		// Unwrap error to return the original error to the caller
-		err = err.(errRejected).inner
-
-		fallthrough
-	case t.isRejectedError(err):
-		t.reject(priority, now)
-	default:
-		t.accept(priority, now)
-	}
-
-	if err != nil && len(fallbackFn) > 0 {
-		return fallbackFn[0](ctx, err, false)
-	}
-
+	_, err := Throttle(ctx, t, defaultPriority, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, fn(ctx)
+	}, fb...)
 	return err
 }
 
@@ -385,8 +353,12 @@ func Throttle[T any](
 	case err == nil:
 		at.accept(priority, now)
 	case errors.Is(err, errRejected{}):
-		// Unwrap error to return the original error to the caller
-		err = err.(errRejected).inner
+		// Unwrap error to return the original error to the caller.
+		// Use errors.As rather than a direct type assertion so that
+		// errRejected values wrapped inside another error are handled safely.
+		var re errRejected
+		errors.As(err, &re)
+		err = re.inner
 
 		fallthrough
 	case at.isRejectedError(err):
