@@ -354,11 +354,9 @@ func Throttle[T any](
 		at.accept(priority, now)
 	case errors.Is(err, errRejected{}):
 		// Unwrap error to return the original error to the caller.
-		// Use errors.As rather than a direct type assertion so that
-		// errRejected values wrapped inside another error are handled safely.
-		var re errRejected
-		errors.As(err, &re)
-		err = re.inner
+		if re, ok := errors.AsType[errRejected](err); ok {
+			err = re.inner
+		}
 
 		fallthrough
 	case at.isRejectedError(err):
