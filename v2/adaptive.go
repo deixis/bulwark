@@ -169,7 +169,7 @@ func (t *AdaptiveThrottle) rejectionProbability(p Priority, now time.Time) float
 	t.m.Lock()
 	requests := float64(t.requests[int(p)].get(now))
 	accepts := float64(t.accepts[int(p)].get(now))
-	for i := 0; i < int(p); i++ {
+	for i := range int(p) {
 		// Also count non-accepted requests for every higher priority as
 		// non-accepted for this priority.
 		requests += float64(t.requests[i].get(now) - t.accepts[i].get(now))
@@ -392,17 +392,8 @@ func (err errRejected) Is(target error) bool {
 	return ok
 }
 
-// clamp clamps x to the range [min, max].
-func clamp(min, x, max float64) float64 {
-	if x < min {
-		return min
-	}
-	if x > max {
-		return max
-	}
 
-	return x
-}
+func clamp(lo, x, hi float64) float64 { return max(lo, min(x, hi)) }
 
 type (
 	throttledFn            func(ctx context.Context) error

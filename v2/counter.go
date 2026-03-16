@@ -41,19 +41,13 @@ func (c *windowedCounter) get(now time.Time) int {
 	elapsed := now.Sub(c.last)
 
 	// How many buckets have we passed since `last`?
-	bucketsPassed := int(elapsed / c.width)
-	if bucketsPassed < 0 {
-		bucketsPassed = 0
-	}
 	// Since it's a circular buffer, passing more than all of the buckets is the same as passing all
 	// of them.
-	if bucketsPassed >= len(c.buckets) {
-		bucketsPassed = len(c.buckets)
-	}
+	bucketsPassed := min(max(int(elapsed/c.width), 0), len(c.buckets))
 
 	// For all of the buckets that already happened, zero them out, advance head, and remove their
 	// amounts from c.count.
-	for i := 0; i < bucketsPassed; i++ {
+	for range bucketsPassed {
 		nextIdx := (c.head + 1) % len(c.buckets)
 		c.count -= c.buckets[nextIdx]
 		c.buckets[nextIdx] = 0
