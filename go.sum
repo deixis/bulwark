@@ -1,4 +1,4 @@
-github.com/deixis/faults v0.0.0-20240817153531-c0ec10db827f h1:n8+Ze8qDZh8DzSdknFqzXpvU3xjVrhqShgyx1xwC8ek=
-github.com/deixis/faults v0.0.0-20240817153531-c0ec10db827f/go.mod h1:TmAFyR/M6swaIznYCjZBqZMVJg5MYOJFOsTYOawLZK4=
+github.com/deixis/faults v1.0.1 h1:4KbZaJvqOfc2cWh3CjWU2ynGWRY/OpDr2DOgp2j6zeQ=
+github.com/deixis/faults v1.0.1/go.mod h1:TmAFyR/M6swaIznYCjZBqZMVJg5MYOJFOsTYOawLZK4=
 golang.org/x/time v0.6.0 h1:eTDhh4ZXt5Qf0augr54TN6suAUudPcawVZeIAPU7D4U=
 golang.org/x/time v0.6.0/go.mod h1:3BpzKBy/shNhVucY/MWOyx10tF3SFh9QdLuxbVysPQM=
