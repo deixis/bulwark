@@ -564,3 +564,50 @@ func (alwaysShed) Uint64() uint64 { return 0 }
 type neverShed struct{}
 
 func (neverShed) Uint64() uint64 { return math.MaxUint64 }
+
+// msgComparingErr mimics error types (common in third-party libraries) whose Is
+// method inspects the target via Error(). Such a type, in the returned error's
+// chain, used to detonate the value-based errors.Is(err, errRejected{}) guard by
+// calling errRejected{}.Error() on a nil inner.
+type msgComparingErr struct{ message string }
+
+func (e *msgComparingErr) Error() string        { return e.message }
+func (e *msgComparingErr) Is(target error) bool { return e.message == target.Error() }
+
+// TestWithAdaptiveThrottleMsgComparingErrorDoesNotPanic verifies that an error
+// whose Is method inspects the target is classified without panicking, and is
+// returned to the caller unchanged (a bare error is not a rejection).
+func TestWithAdaptiveThrottleMsgComparingErrorDoesNotPanic(t *testing.T) {
+	at := NewAdaptiveThrottle(4)
+	in := &msgComparingErr{message: "boom"}
+	_, err := WithAdaptiveThrottle(at, High, func() (int, error) { return 0, in })
+	if !errors.Is(err, in) {
+		t.Fatalf("got %v; want original error returned unchanged", err)
+	}
+}
+
+// TestWithAdaptiveThrottleRejectedMsgComparingErrorUnwraps verifies that such an
+// error wrapped in RejectedError is classified as a rejection and unwrapped back
+// to the original error for the caller.
+func TestWithAdaptiveThrottleRejectedMsgComparingErrorUnwraps(t *testing.T) {
+	at := NewAdaptiveThrottle(4)
+	in := &msgComparingErr{message: "backend down"}
+	_, err := WithAdaptiveThrottle(at, High, func() (int, error) { return 0, RejectedError(in) })
+	if err != in {
+		t.Fatalf("got %v; want unwrapped original error", err)
+	}
+}
+
+// TestRejectedErrorNil verifies that RejectedError(nil) returns nil, so a
+// successful call is never accounted as a rejection.
+func TestRejectedErrorNil(t *testing.T) {
+	if err := RejectedError(nil); err != nil {
+		t.Fatalf("RejectedError(nil) = %v; want nil", err)
+	}
+
+	at := NewAdaptiveThrottle(4)
+	res, err := WithAdaptiveThrottle(at, High, func() (int, error) { return 42, RejectedError(nil) })
+	if err != nil || res != 42 {
+		t.Fatalf("got (res=%d, err=%v); want (42, nil)", res, err)
+	}
+}

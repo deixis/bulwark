@@ -349,16 +349,17 @@ func Throttle[T any](
 	res, err = throttledFn(ctx)
 
 	now = at.now()
-	switch {
+	switch re, rejected := errors.AsType[errRejected](err); {
+	case rejected:
+		// Explicitly marked as a rejection via RejectedError. Detect the
+		// wrapper by type rather than value: errors.Is(err, errRejected{})
+		// would pass a nil-inner target whose Error() panics when a chain
+		// link's Is method inspects it. Unwrap to return the original error
+		// to the caller.
+		err = re.inner
+		at.reject(priority, now)
 	case err == nil:
 		at.accept(priority, now)
-	case errors.Is(err, errRejected{}):
-		// Unwrap error to return the original error to the caller.
-		if re, ok := errors.AsType[errRejected](err); ok {
-			err = re.inner
-		}
-
-		fallthrough
 	case at.isRejectedError(err):
 		at.reject(priority, now)
 	default:
@@ -378,8 +379,19 @@ func Throttle[T any](
 // Any error that indicates that the backend is unhealthy should be wrapped with
 // `RejectedError`. But other errors, such as bad requests, authentication failures,
 // pre-condition failures, etc., should not be wrapped with `RejectedError`.
-func RejectedError(err error) error { return errRejected{inner: err} }
+//
+// A nil error is returned unchanged: wrapping "no error" as a rejection is
+// meaningless. This also keeps errRejected's invariant that inner is never nil.
+func RejectedError(err error) error {
+	if err == nil {
+		return nil
+	}
 
+	return errRejected{inner: err}
+}
+
+// errRejected marks an error as a rejection. inner is never nil: it is only
+// constructed by RejectedError, which returns nil for a nil error.
 type errRejected struct{ inner error }
 
 func (err errRejected) Error() string { return err.inner.Error() }
@@ -389,7 +401,6 @@ func (err errRejected) Is(target error) bool {
 
 	return ok
 }
-
 
 func clamp(lo, x, hi float64) float64 { return max(lo, min(x, hi)) }
 
